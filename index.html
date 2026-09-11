@@ -3,42 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TikTok Username Availability Checker</title>
+    <title>TikTok Rapid Username Checker</title>
     <style>
         body { font-family: monospace; background: #111; color: #0f0; padding: 20px; }
-        #output { margin-top: 20px; white-space: pre-wrap; }
-        .available { color: #44ff44; font-weight: bold; }
+        #output { margin-top: 20px; white-space: pre-wrap; max-height: 400px; overflow-y: auto; border: 1px solid #333; padding: 10px; }
+        .available { color: #44ff44; font-weight: bold; font-size: 1.2em; }
         .error { color: #ff4444; }
         .info { color: #ffcc00; }
-        button { background: #0f0; color: #111; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; }
+        button { background: #0f0; color: #111; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; margin-right: 10px; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
+        #stats { margin-top: 10px; color: #aaa; }
     </style>
 </head>
 <body>
-    <h2>TikTok Username Availability Checker</h2>
-    <p>Generates random 4-letter usernames and checks if they are available on TikTok.</p>
+    <h2>TikTok Username Availability Checker (Rapid)</h2>
+    <p>Generates random 4-letter usernames and checks availability at high speed.</p>
     <button id="startBtn">Start Searching</button>
+    <button id="stopBtn" disabled>Stop</button>
+    <div id="stats">Attempts: 0 | Checked: 0 | Speed: 0/s</div>
     <div id="output"></div>
 
     <script>
         (function() {
             const output = document.getElementById('output');
             const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const statsDiv = document.getElementById('stats');
 
             // CORS proxy to bypass cross-origin restrictions.
-            // Note: Public proxies may be rate-limited or blocked.
+            // Public proxies may be rate-limited or blocked. Replace with your own if needed.
             const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
-
-            // TikTok profile URL pattern
             const TIKTOK_URL = 'https://www.tiktok.com/@';
 
-            // Delay between requests (ms) to avoid rate limiting
-            const DELAY_MS = 1500;
+            // Concurrency level: number of simultaneous requests.
+            // 1000 gives high throughput but may be blocked by browser/proxy.
+            const CONCURRENCY = 1000;
 
-            // Maximum attempts before stopping (safety limit)
-            const MAX_ATTEMPTS = 1000;
+            // Safety limit to prevent infinite loops
+            const MAX_ATTEMPTS = 1000000;
 
             let isSearching = false;
+            let found = false;
+            let attempts = 0;
+            let checked = 0;
+            let startTime = 0;
+            let speedInterval = null;
+            const controllers = new Set();
 
             // Generate a random 4-letter lowercase string
             function randomUsername() {
@@ -51,114 +61,119 @@
             }
 
             // Check if a TikTok username exists.
-            // Returns true if the username EXISTS (i.e., taken), false if AVAILABLE.
-            async function usernameExists(username) {
+            // Returns true if taken, false if available.
+            async function checkUsername(username) {
                 const targetUrl = TIKTOK_URL + username;
                 const proxyUrl = CORS_PROXY + encodeURIComponent(targetUrl);
+                const controller = new AbortController();
+                controllers.add(controller);
 
                 try {
                     const response = await fetch(proxyUrl, {
                         method: 'GET',
-                        headers: {
-                            'Accept': 'text/html,application/xhtml+xml'
-                        }
+                        headers: { 'Accept': 'text/html,application/xhtml+xml' },
+                        signal: controller.signal
                     });
 
-                    // If the response is 404, the user does not exist -> available
-                    if (response.status === 404) {
-                        return false;
-                    }
-
-                    // If status is not 200, treat as error and assume taken to be safe
-                    if (response.status !== 200) {
-                        return true;
-                    }
+                    if (response.status === 404) return false; // available
+                    if (response.status !== 200) return true; // treat as taken
 
                     const html = await response.text();
-
-                    // TikTok's "user not found" page contains specific phrases.
-                    // Common indicators: "Couldn't find this account", "This account doesn't exist"
                     const notFoundPatterns = [
                         /Couldn't find this account/i,
                         /This account doesn't exist/i,
                         /User not found/i,
                         /No results found/i
                     ];
-
                     for (const pattern of notFoundPatterns) {
-                        if (pattern.test(html)) {
-                            return false; // Available
-                        }
+                        if (pattern.test(html)) return false;
                     }
-
-                    // If none of the not-found patterns matched, assume the user exists.
                     return true;
                 } catch (err) {
-                    // On network error, log and assume the username is taken (to avoid false positives)
-                    console.error(`Error checking ${username}:`, err);
-                    return true;
+                    if (err.name === 'AbortError') return null; // ignored
+                    return true; // on network error, assume taken
+                } finally {
+                    controllers.delete(controller);
                 }
             }
 
-            // Sleep helper
-            function sleep(ms) {
-                return new Promise(resolve => setTimeout(resolve, ms));
+            // Worker that continuously checks random usernames
+            async function worker() {
+                while (isSearching && !found && attempts < MAX_ATTEMPTS) {
+                    const username = randomUsername();
+                    attempts++;
+                    const exists = await checkUsername(username);
+                    if (exists === false) {
+                        found = true;
+                        isSearching = false;
+                        // Abort all pending requests
+                        for (const c of controllers) c.abort();
+                        controllers.clear();
+                        output.innerHTML = `<div class="available">✅ AVAILABLE: @${username}</div>`;
+                        break;
+                    }
+                    if (exists !== null) checked++;
+                }
             }
 
-            // Main search loop
-            async function searchLoop() {
+            // Update stats periodically
+            function updateStats() {
+                const elapsed = (Date.now() - startTime) / 1000;
+                const speed = elapsed > 0 ? (checked / elapsed).toFixed(0) : 0;
+                statsDiv.textContent = `Attempts: ${attempts} | Checked: ${checked} | Speed: ${speed}/s`;
+            }
+
+            // Main search function
+            async function startSearch() {
                 if (isSearching) return;
                 isSearching = true;
-                startBtn.disabled = true;
+                found = false;
+                attempts = 0;
+                checked = 0;
+                startTime = Date.now();
                 output.innerHTML = '';
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
 
-                let attempt = 0;
-                let found = false;
+                // Start stats updater
+                speedInterval = setInterval(updateStats, 500);
 
-                while (attempt < MAX_ATTEMPTS && isSearching) {
-                    attempt++;
-                    const username = randomUsername();
-
-                    output.innerHTML += `<div class="info">Attempt ${attempt}: Checking @${username}...</div>`;
-                    // Auto-scroll to bottom
-                    window.scrollTo(0, document.body.scrollHeight);
-
-                    const exists = await usernameExists(username);
-
-                    if (!exists) {
-                        // Username is available
-                        output.innerHTML += `<div class="available">✅ AVAILABLE: @${username}</div>`;
-                        window.scrollTo(0, document.body.scrollHeight);
-                        found = true;
-                        break;
-                    } else {
-                        output.innerHTML += `<div>@${username} is taken.</div>`;
-                        window.scrollTo(0, document.body.scrollHeight);
-                    }
-
-                    // Delay before next request
-                    await sleep(DELAY_MS);
+                // Launch workers
+                const workers = [];
+                for (let i = 0; i < CONCURRENCY; i++) {
+                    workers.push(worker());
                 }
 
-                if (!found && isSearching) {
-                    output.innerHTML += `<div class="error">Search stopped after ${attempt} attempts without finding an available username.</div>`;
-                }
+                // Wait for all workers to finish
+                await Promise.all(workers);
 
+                // Cleanup
+                clearInterval(speedInterval);
+                updateStats();
                 isSearching = false;
                 startBtn.disabled = false;
+                stopBtn.disabled = true;
+
+                if (!found) {
+                    output.innerHTML += `<div class="error">Search stopped after ${attempts} attempts. No available username found.</div>`;
+                }
             }
 
-            // Start button handler
-            startBtn.addEventListener('click', () => {
-                if (isSearching) {
-                    isSearching = false; // signal stop
-                    startBtn.disabled = true;
-                    output.innerHTML += '<div class="error">Search cancelled by user.</div>';
-                    setTimeout(() => { startBtn.disabled = false; }, 500);
-                } else {
-                    searchLoop();
-                }
-            });
+            // Stop search
+            function stopSearch() {
+                if (!isSearching) return;
+                isSearching = false;
+                // Abort all pending
+                for (const c of controllers) c.abort();
+                controllers.clear();
+                output.innerHTML += `<div class="error">Search cancelled by user.</div>`;
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                clearInterval(speedInterval);
+            }
+
+            startBtn.addEventListener('click', startSearch);
+            stopBtn.addEventListener('click', stopSearch);
         })();
     </script>
 </body>
