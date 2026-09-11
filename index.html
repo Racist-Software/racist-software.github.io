@@ -3,324 +3,163 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TikTok Booster – Separate Followers / Likes & Views</title>
+    <title>TikTok Username Availability Checker</title>
     <style>
-        * { box-sizing: border-box; }
-        body {
-            background: #0a0a0a;
-            font-family: 'Segoe UI', system-ui, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            padding: 20px;
-        }
-        .card {
-            background: #111;
-            border-radius: 48px;
-            padding: 30px 28px;
-            max-width: 560px;
-            width: 100%;
-            border: 1px solid #ff0040;
-            box-shadow: 0 0 20px rgba(255,0,64,0.3);
-        }
-        h1 {
-            text-align: center;
-            color: #ff0040;
-            margin-bottom: 8px;
-            font-size: 28px;
-        }
-        .sub {
-            text-align: center;
-            color: #aaa;
-            margin-bottom: 28px;
-            font-size: 13px;
-            border-bottom: 1px solid #222;
-            padding-bottom: 12px;
-        }
-        .section {
-            background: #16161a;
-            border-radius: 24px;
-            padding: 18px;
-            margin-bottom: 24px;
-            border-left: 4px solid #ff0040;
-        }
-        .section h3 {
-            margin: 0 0 12px 0;
-            color: #ff6080;
-            font-size: 18px;
-        }
-        label {
-            display: block;
-            color: #ddd;
-            margin: 12px 0 6px;
-            font-weight: 600;
-            font-size: 13px;
-        }
-        input, select {
-            width: 100%;
-            padding: 12px 16px;
-            background: #0a0a0f;
-            border: 1px solid #2a2a35;
-            border-radius: 28px;
-            color: white;
-            font-size: 14px;
-            outline: none;
-        }
-        input:focus {
-            border-color: #ff0040;
-        }
-        .row {
-            display: flex;
-            gap: 12px;
-            margin-top: 8px;
-        }
-        .row > div {
-            flex: 1;
-        }
-        button {
-            width: 100%;
-            background: linear-gradient(90deg, #ff0040, #ff2a00);
-            border: none;
-            padding: 14px;
-            border-radius: 40px;
-            color: white;
-            font-weight: bold;
-            font-size: 18px;
-            cursor: pointer;
-            margin-top: 12px;
-            transition: 0.2s;
-        }
-        button:hover {
-            filter: brightness(1.07);
-            transform: scale(1.01);
-        }
-        .status {
-            margin-top: 20px;
-            background: #1a1a1a;
-            padding: 14px;
-            border-radius: 24px;
-            font-family: monospace;
-            text-align: center;
-            color: #0f0;
-            font-size: 13px;
-        }
-        .loader {
-            display: inline-block;
-            width: 14px;
-            height: 14px;
-            border: 2px solid #0f0;
-            border-radius: 50%;
-            border-top-color: transparent;
-            animation: spin 0.6s linear infinite;
-            margin-right: 8px;
-            vertical-align: middle;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .footer {
-            text-align: center;
-            font-size: 10px;
-            color: #555;
-            margin-top: 20px;
-        }
-        hr {
-            border-color: #2a2a35;
-            margin: 16px 0;
-        }
-        .badge {
-            font-size: 11px;
-            background: #2a2a35;
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 20px;
-            margin-left: 8px;
-            color: #ffa0b0;
-        }
+        body { font-family: monospace; background: #111; color: #0f0; padding: 20px; }
+        #output { margin-top: 20px; white-space: pre-wrap; }
+        .available { color: #44ff44; font-weight: bold; }
+        .error { color: #ff4444; }
+        .info { color: #ffcc00; }
+        button { background: #0f0; color: #111; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
     </style>
 </head>
 <body>
-<div class="card">
-    <h1>⚡ TIKTOK BOOST ⚡</h1>
-    <div class="sub">Separate boost: followers for accounts | likes & views for videos</div>
+    <h2>TikTok Username Availability Checker</h2>
+    <p>Generates random 4-letter usernames and checks if they are available on TikTok.</p>
+    <button id="startBtn">Start Searching</button>
+    <div id="output"></div>
 
-    <form id="boostForm">
-        <!-- SECTION 1: FOLLOWERS (for TikTok ACCOUNT) -->
-        <div class="section">
-            <h3>👥 FOLLOWERS <span class="badge">for account</span></h3>
-            <label>🔹 TikTok Username (without @)</label>
-            <input type="text" id="accountUsername" placeholder="example: charlidamelio" autocomplete="off">
-            <label>📈 Number of followers</label>
-            <input type="number" id="followersCount" value="500" min="50" max="25000" step="50">
-        </div>
+    <script>
+        (function() {
+            const output = document.getElementById('output');
+            const startBtn = document.getElementById('startBtn');
 
-        <!-- SECTION 2: LIKES & VIEWS (for VIDEO) -->
-        <div class="section">
-            <h3>🎬 LIKES & VIEWS <span class="badge">for video</span></h3>
-            <label>🔗 TikTok Video URL or Video ID</label>
-            <input type="text" id="videoUrl" placeholder="https://www.tiktok.com/@user/video/1234567890" autocomplete="off">
-            <div class="row">
-                <div>
-                    <label>❤️ Likes</label>
-                    <input type="number" id="likesCount" value="1500" min="100" max="50000" step="100">
-                </div>
-                <div>
-                    <label>👀 Views</label>
-                    <input type="number" id="viewsCount" value="10000" min="500" max="200000" step="500">
-                </div>
-            </div>
-        </div>
+            // CORS proxy to bypass cross-origin restrictions.
+            // Note: Public proxies may be rate-limited or blocked.
+            const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 
-        <button type="submit">🚀 SEND BOOST 🚀</button>
-    </form>
+            // TikTok profile URL pattern
+            const TIKTOK_URL = 'https://www.tiktok.com/@';
 
-    <div class="status" id="statusMsg">◆ Ready. Fill at least one section and click boost.</div>
-    <div class="footer">static HTML • real API • separate handling</div>
-</div>
+            // Delay between requests (ms) to avoid rate limiting
+            const DELAY_MS = 1500;
 
-<script>
-    // ========== REAL WORKING API (PUBLIC, FREE, NO KEY) ==========
-    const API_BASE = "https://api.tiktok-boost.workers.dev";
-    const FOLLOWERS_ENDPOINT = API_BASE + "/followers";
-    const VIDEO_ENDPOINT = API_BASE + "/video";
+            // Maximum attempts before stopping (safety limit)
+            const MAX_ATTEMPTS = 1000;
 
-    // Optional Discord log webhook (replace if you have one)
-    const LOG_WEBHOOK = ""; // leave empty to disable
+            let isSearching = false;
 
-    async function sendFollowers(username, count) {
-        const payload = {
-            username: username.replace(/^@/, "").trim(),
-            followers: parseInt(count),
-            timestamp: Date.now()
-        };
-        const res = await fetch(FOLLOWERS_ENDPOINT, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error(`Followers API error: ${res.status}`);
-        const data = await res.json();
-        if (data.success !== true) throw new Error(data.message || "Followers boost failed");
-        return data;
-    }
+            // Generate a random 4-letter lowercase string
+            function randomUsername() {
+                const letters = 'abcdefghijklmnopqrstuvwxyz';
+                let result = '';
+                for (let i = 0; i < 4; i++) {
+                    result += letters.charAt(Math.floor(Math.random() * letters.length));
+                }
+                return result;
+            }
 
-    async function sendVideoBoost(videoIdOrUrl, likes, views) {
-        // Extract video ID from URL if needed
-        let videoId = videoIdOrUrl.trim();
-        const urlMatch = videoIdOrUrl.match(/\/video\/(\d+)/);
-        if (urlMatch) videoId = urlMatch[1];
-        
-        const payload = {
-            video_id: videoId,
-            likes: parseInt(likes),
-            views: parseInt(views),
-            timestamp: Date.now()
-        };
-        const res = await fetch(VIDEO_ENDPOINT, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error(`Video API error: ${res.status}`);
-        const data = await res.json();
-        if (data.success !== true) throw new Error(data.message || "Video boost failed");
-        return data;
-    }
+            // Check if a TikTok username exists.
+            // Returns true if the username EXISTS (i.e., taken), false if AVAILABLE.
+            async function usernameExists(username) {
+                const targetUrl = TIKTOK_URL + username;
+                const proxyUrl = CORS_PROXY + encodeURIComponent(targetUrl);
 
-    async function logToDiscord(message) {
-        if (!LOG_WEBHOOK) return;
-        try {
-            await fetch(LOG_WEBHOOK, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ content: message })
+                try {
+                    const response = await fetch(proxyUrl, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'text/html,application/xhtml+xml'
+                        }
+                    });
+
+                    // If the response is 404, the user does not exist -> available
+                    if (response.status === 404) {
+                        return false;
+                    }
+
+                    // If status is not 200, treat as error and assume taken to be safe
+                    if (response.status !== 200) {
+                        return true;
+                    }
+
+                    const html = await response.text();
+
+                    // TikTok's "user not found" page contains specific phrases.
+                    // Common indicators: "Couldn't find this account", "This account doesn't exist"
+                    const notFoundPatterns = [
+                        /Couldn't find this account/i,
+                        /This account doesn't exist/i,
+                        /User not found/i,
+                        /No results found/i
+                    ];
+
+                    for (const pattern of notFoundPatterns) {
+                        if (pattern.test(html)) {
+                            return false; // Available
+                        }
+                    }
+
+                    // If none of the not-found patterns matched, assume the user exists.
+                    return true;
+                } catch (err) {
+                    // On network error, log and assume the username is taken (to avoid false positives)
+                    console.error(`Error checking ${username}:`, err);
+                    return true;
+                }
+            }
+
+            // Sleep helper
+            function sleep(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            // Main search loop
+            async function searchLoop() {
+                if (isSearching) return;
+                isSearching = true;
+                startBtn.disabled = true;
+                output.innerHTML = '';
+
+                let attempt = 0;
+                let found = false;
+
+                while (attempt < MAX_ATTEMPTS && isSearching) {
+                    attempt++;
+                    const username = randomUsername();
+
+                    output.innerHTML += `<div class="info">Attempt ${attempt}: Checking @${username}...</div>`;
+                    // Auto-scroll to bottom
+                    window.scrollTo(0, document.body.scrollHeight);
+
+                    const exists = await usernameExists(username);
+
+                    if (!exists) {
+                        // Username is available
+                        output.innerHTML += `<div class="available">✅ AVAILABLE: @${username}</div>`;
+                        window.scrollTo(0, document.body.scrollHeight);
+                        found = true;
+                        break;
+                    } else {
+                        output.innerHTML += `<div>@${username} is taken.</div>`;
+                        window.scrollTo(0, document.body.scrollHeight);
+                    }
+
+                    // Delay before next request
+                    await sleep(DELAY_MS);
+                }
+
+                if (!found && isSearching) {
+                    output.innerHTML += `<div class="error">Search stopped after ${attempt} attempts without finding an available username.</div>`;
+                }
+
+                isSearching = false;
+                startBtn.disabled = false;
+            }
+
+            // Start button handler
+            startBtn.addEventListener('click', () => {
+                if (isSearching) {
+                    isSearching = false; // signal stop
+                    startBtn.disabled = true;
+                    output.innerHTML += '<div class="error">Search cancelled by user.</div>';
+                    setTimeout(() => { startBtn.disabled = false; }, 500);
+                } else {
+                    searchLoop();
+                }
             });
-        } catch(e) {}
-    }
-
-    document.getElementById("boostForm").addEventListener("submit", async (e) => {
-        e.preventDefault();
-        
-        const accountUsername = document.getElementById("accountUsername").value.trim();
-        const followersCount = document.getElementById("followersCount").value;
-        const videoUrl = document.getElementById("videoUrl").value.trim();
-        const likesCount = document.getElementById("likesCount").value;
-        const viewsCount = document.getElementById("viewsCount").value;
-        
-        const statusDiv = document.getElementById("statusMsg");
-        const btn = document.querySelector("button");
-        
-        // Validate at least one target is provided
-        if (!accountUsername && !videoUrl) {
-            statusDiv.innerHTML = "❌ Please provide either a TikTok username (for followers) or a video URL (for likes/views), or both.";
-            return;
-        }
-        
-        btn.disabled = true;
-        btn.style.opacity = "0.6";
-        
-        const results = [];
-        let hasError = false;
-        
-        // 1) Boost followers if username provided
-        if (accountUsername) {
-            statusDiv.innerHTML = `<span class="loader"></span> Adding ${followersCount} followers to @${accountUsername}...`;
-            try {
-                const folRes = await sendFollowers(accountUsername, followersCount);
-                results.push(`✅ Followers: +${followersCount} to @${accountUsername} (ID: ${folRes.id || 'ok'})`);
-                await logToDiscord(`Followers boost: @${accountUsername} +${followersCount}`);
-            } catch (err) {
-                results.push(`⚠️ Followers failed: ${err.message}`);
-                hasError = true;
-            }
-        }
-        
-        // 2) Boost video (likes & views) if video URL provided
-        if (videoUrl) {
-            statusDiv.innerHTML = `<span class="loader"></span> Sending ${likesCount} likes & ${viewsCount} views to video...`;
-            try {
-                const vidRes = await sendVideoBoost(videoUrl, likesCount, viewsCount);
-                results.push(`✅ Video: +${likesCount} likes, +${viewsCount} views (ID: ${vidRes.id || 'ok'})`);
-                await logToDiscord(`Video boost: ${videoUrl} | likes:${likesCount} views:${viewsCount}`);
-            } catch (err) {
-                results.push(`⚠️ Video boost failed: ${err.message}`);
-                hasError = true;
-            }
-        }
-        
-        // Final status display
-        if (!hasError) {
-            statusDiv.innerHTML = results.join('<br>') + '<br>🟢 All boosts delivered. Visible within 5-30 seconds.';
-        } else {
-            statusDiv.innerHTML = results.join('<br>') + '<br>🔄 Some boosts failed. Retrying in background...';
-            // Auto retry for failed parts (simple retry once)
-            setTimeout(async () => {
-                if (accountUsername && results.some(r => r.includes('Followers failed'))) {
-                    try {
-                        await sendFollowers(accountUsername, followersCount);
-                        statusDiv.innerHTML += `<br>✅ Retry: Followers delivered successfully.`;
-                    } catch(e) {}
-                }
-                if (videoUrl && results.some(r => r.includes('Video boost failed'))) {
-                    try {
-                        await sendVideoBoost(videoUrl, likesCount, viewsCount);
-                        statusDiv.innerHTML += `<br>✅ Retry: Video likes/views delivered.`;
-                    } catch(e) {}
-                }
-            }, 4000);
-        }
-        
-        btn.disabled = false;
-        btn.style.opacity = "1";
-    });
-    
-    // Periodic idle message update
-    setInterval(() => {
-        const st = document.getElementById("statusMsg");
-        if (st.innerHTML.includes("Ready") || st.innerHTML.includes("online")) {
-            st.innerHTML = "◆ Servers online | Separate boost ready | real delivery";
-        }
-    }, 25000);
-</script>
+        })();
+    </script>
 </body>
 </html>
