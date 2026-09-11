@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TikTok Username Checker (Live Log)</title>
+    <title>TikTok Username Checker (instantusername API)</title>
     <style>
         body { font-family: monospace; background: #111; color: #0f0; padding: 20px; }
         #log { margin-top: 20px; white-space: pre-wrap; max-height: 500px; overflow-y: auto; border: 1px solid #333; padding: 10px; font-size: 13px; }
@@ -18,7 +18,7 @@
 </head>
 <body>
     <h2>TikTok Username Availability Checker</h2>
-    <p>Generates 4-letter usernames at 20/sec, checks each within 5 seconds, logs all results.</p>
+    <p>Uses instantusername.com API. Generates 4-letter usernames at 20/sec, checks each within 5 seconds.</p>
     <button id="startBtn">Start</button>
     <button id="stopBtn" disabled>Stop</button>
     <button id="clearBtn">Clear Log</button>
@@ -33,13 +33,14 @@
             const clearBtn = document.getElementById('clearBtn');
             const statsDiv = document.getElementById('stats');
 
-            // Proxy that returns JSON with status and contents
-            const PROXY_BASE = 'https://api.allorigins.win/get?url=';
-            const TIKTOK_URL = 'https://www.tiktok.com/@';
+            // instantusername.com API base URL discovered from page preconnect
+            const API_BASE = 'https://api.instantusername.com';
+            // Endpoint pattern inferred from the project's mock server: /check/:platform/:username
+            const CHECK_ENDPOINT = (username) => `${API_BASE}/check/tiktok/${username}`;
 
             // Generation rate: 20 per second -> one every 50ms
             const GEN_INTERVAL_MS = 50;
-            // Maximum concurrent requests
+            // Maximum concurrent requests (workers)
             const CONCURRENCY = 50;
             // Per-request timeout (5 seconds)
             const REQUEST_TIMEOUT_MS = 5000;
@@ -57,7 +58,6 @@
             let genInterval = null;
             const activeControllers = new Set();
 
-            // Queue for usernames waiting to be checked
             const queue = [];
             let activeWorkers = 0;
 
@@ -82,21 +82,18 @@
                 logDiv.scrollTop = logDiv.scrollHeight;
             }
 
-            // Check username existence. Returns true if taken, false if available, null on error.
             async function checkUsername(username) {
-                const targetUrl = TIKTOK_URL + username;
-                const proxyUrl = PROXY_BASE + encodeURIComponent(targetUrl);
+                const url = CHECK_ENDPOINT(username);
                 const controller = new AbortController();
                 activeControllers.add(controller);
-
-                // Set a timeout to abort the request after REQUEST_TIMEOUT_MS
                 const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
                 for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
                     try {
-                        const response = await fetch(proxyUrl, {
+                        const response = await fetch(url, {
                             method: 'GET',
-                            signal: controller.signal
+                            signal: controller.signal,
+                            headers: { 'Accept': 'application/json' }
                         });
 
                         if (!response.ok) {
@@ -104,65 +101,19 @@
                                 await sleep(300);
                                 continue;
                             }
-                            return null;
-                        }
-
-                        const json = await response.json();
-                        const httpCode = json.status?.http_code;
-                        const contents = json.contents || '';
-
-                        if (httpCode === 404) {
-                            clearTimeout(timeoutId);
-                            activeControllers.delete(controller);
-                            return false; // available
-                        }
-
-                        if (httpCode !== 200) {
-                            if (attempt < MAX_RETRIES - 1) {
-                                await sleep(300);
-                                continue;
-                            }
                             clearTimeout(timeoutId);
                             activeControllers.delete(controller);
                             return null;
                         }
 
-                        // Reliable indicators that the user EXISTS (taken)
-                        const takenIndicators = [
-                            new RegExp(`"uniqueId":"${username}"`, 'i'),
-                            new RegExp(`@${username}`, 'i'),
-                            /"userInfo":\{/i,
-                            /"itemList":/i
-                        ];
-
-                        for (const pattern of takenIndicators) {
-                            if (pattern.test(contents)) {
-                                clearTimeout(timeoutId);
-                                activeControllers.delete(controller);
-                                return true; // taken
-                            }
-                        }
-
-                        // Not-found patterns
-                        const notFoundPatterns = [
-                            /Couldn't find this account/i,
-                            /This account doesn't exist/i,
-                            /User not found/i,
-                            /No results found/i
-                        ];
-
-                        for (const pattern of notFoundPatterns) {
-                            if (pattern.test(contents)) {
-                                clearTimeout(timeoutId);
-                                activeControllers.delete(controller);
-                                return false; // available
-                            }
-                        }
-
-                        // If inconclusive, treat as taken (conservative)
+                        const data = await response.json();
+                        // Expected shape: { service, url, available, message }
                         clearTimeout(timeoutId);
                         activeControllers.delete(controller);
-                        return true;
+                        if (typeof data.available === 'boolean') {
+                            return data.available; // true = available, false = taken
+                        }
+                        return null; // unexpected response
                     } catch (err) {
                         if (err.name === 'AbortError') {
                             clearTimeout(timeoutId);
@@ -183,7 +134,6 @@
                 return null;
             }
 
-            // Worker that pulls from queue and checks
             async function worker() {
                 while (isSearching && !found) {
                     if (queue.length === 0) {
@@ -193,22 +143,21 @@
                     const username = queue.shift();
                     if (!username) continue;
                     attempts++;
-                    const exists = await checkUsername(username);
-                    if (exists === false) {
+                    const available = await checkUsername(username);
+                    if (available === true) {
                         found = true;
                         isSearching = false;
-                        // Abort all pending
                         for (const c of activeControllers) c.abort();
                         activeControllers.clear();
                         queue.length = 0;
                         appendLog(`✅ AVAILABLE: @${username}`, 'available');
                         break;
-                    } else if (exists === true) {
+                    } else if (available === false) {
                         appendLog(`❌ @${username} is taken`, 'taken');
                     } else {
                         appendLog(`⚠️ @${username} check failed`, 'error');
                     }
-                    if (exists !== null) checked++;
+                    if (available !== null) checked++;
                 }
             }
 
@@ -230,16 +179,13 @@
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
 
-                // Stats updater
                 speedInterval = setInterval(updateStats, 500);
 
-                // Start workers
                 for (let i = 0; i < CONCURRENCY; i++) {
                     activeWorkers++;
                     worker().finally(() => { activeWorkers--; });
                 }
 
-                // Generator: produce a username every GEN_INTERVAL_MS
                 genInterval = setInterval(() => {
                     if (!isSearching || found) {
                         clearInterval(genInterval);
@@ -253,7 +199,6 @@
                     queue.push(randomUsername());
                 }, GEN_INTERVAL_MS);
 
-                // Monitor completion
                 const checkDone = setInterval(() => {
                     if (!isSearching && queue.length === 0 && activeWorkers === 0) {
                         clearInterval(checkDone);
