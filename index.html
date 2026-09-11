@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TikTok Rapid Username Checker</title>
+    <title>TikTok Username Checker (Accurate)</title>
     <style>
         body { font-family: monospace; background: #111; color: #0f0; padding: 20px; }
         #output { margin-top: 20px; white-space: pre-wrap; max-height: 400px; overflow-y: auto; border: 1px solid #333; padding: 10px; }
@@ -16,8 +16,8 @@
     </style>
 </head>
 <body>
-    <h2>TikTok Username Availability Checker (Rapid)</h2>
-    <p>Generates random 4-letter usernames and checks availability at high speed.</p>
+    <h2>TikTok Username Availability Checker</h2>
+    <p>Generates random 4-letter usernames and checks availability reliably.</p>
     <button id="startBtn">Start Searching</button>
     <button id="stopBtn" disabled>Stop</button>
     <div id="stats">Attempts: 0 | Checked: 0 | Speed: 0/s</div>
@@ -30,16 +30,17 @@
             const stopBtn = document.getElementById('stopBtn');
             const statsDiv = document.getElementById('stats');
 
-            // CORS proxy to bypass cross-origin restrictions.
-            // Public proxies may be rate-limited or blocked. Replace with your own if needed.
-            const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+            // Use allorigins JSON endpoint for reliable status codes
+            const PROXY_BASE = 'https://api.allorigins.win/get?url=';
             const TIKTOK_URL = 'https://www.tiktok.com/@';
 
-            // Concurrency level: number of simultaneous requests.
-            // 1000 gives high throughput but may be blocked by browser/proxy.
-            const CONCURRENCY = 1000;
-
-            // Safety limit to prevent infinite loops
+            // Concurrency: number of parallel requests. Keep moderate to avoid rate limiting.
+            const CONCURRENCY = 20;
+            // Delay per request per worker (ms)
+            const REQUEST_DELAY = 50;
+            // Retry attempts on network error
+            const MAX_RETRIES = 3;
+            // Safety limit
             const MAX_ATTEMPTS = 1000000;
 
             let isSearching = false;
@@ -50,7 +51,6 @@
             let speedInterval = null;
             const controllers = new Set();
 
-            // Generate a random 4-letter lowercase string
             function randomUsername() {
                 const letters = 'abcdefghijklmnopqrstuvwxyz';
                 let result = '';
@@ -60,44 +60,89 @@
                 return result;
             }
 
-            // Check if a TikTok username exists.
-            // Returns true if taken, false if available.
+            // Sleep helper
+            function sleep(ms) {
+                return new Promise(r => setTimeout(r, ms));
+            }
+
+            // Check username existence. Returns true if taken, false if available, null on error.
             async function checkUsername(username) {
                 const targetUrl = TIKTOK_URL + username;
-                const proxyUrl = CORS_PROXY + encodeURIComponent(targetUrl);
+                const proxyUrl = PROXY_BASE + encodeURIComponent(targetUrl);
                 const controller = new AbortController();
                 controllers.add(controller);
 
-                try {
-                    const response = await fetch(proxyUrl, {
-                        method: 'GET',
-                        headers: { 'Accept': 'text/html,application/xhtml+xml' },
-                        signal: controller.signal
-                    });
+                for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                    try {
+                        const response = await fetch(proxyUrl, {
+                            method: 'GET',
+                            signal: controller.signal
+                        });
 
-                    if (response.status === 404) return false; // available
-                    if (response.status !== 200) return true; // treat as taken
+                        if (!response.ok) {
+                            // Proxy error, retry
+                            await sleep(200);
+                            continue;
+                        }
 
-                    const html = await response.text();
-                    const notFoundPatterns = [
-                        /Couldn't find this account/i,
-                        /This account doesn't exist/i,
-                        /User not found/i,
-                        /No results found/i
-                    ];
-                    for (const pattern of notFoundPatterns) {
-                        if (pattern.test(html)) return false;
+                        const json = await response.json();
+                        const httpCode = json.status?.http_code;
+                        const contents = json.contents || '';
+
+                        // If TikTok returned 404, user does not exist
+                        if (httpCode === 404) {
+                            return false; // available
+                        }
+
+                        // If status is not 200, treat as error and retry
+                        if (httpCode !== 200) {
+                            await sleep(200);
+                            continue;
+                        }
+
+                        // Check for "not found" patterns in the HTML
+                        const notFoundPatterns = [
+                            /Couldn't find this account/i,
+                            /This account doesn't exist/i,
+                            /User not found/i,
+                            /No results found/i,
+                            /<title>.*?TikTok<\/title>/i // generic title might indicate error page? but can be false
+                        ];
+
+                        // More reliable: check for presence of specific meta tags that exist on real profiles
+                        // Real profiles contain: <meta property="og:title" content="... (@username) TikTok">
+                        // or a script with "uniqueId":"username"
+                        const takenIndicators = [
+                            new RegExp(`"uniqueId":"${username}"`, 'i'),
+                            new RegExp(`@${username}`, 'i'),
+                            /"userInfo":\{/i,
+                            /"itemList":/i
+                        ];
+
+                        // If any taken indicator is present, assume taken.
+                        for (const pattern of takenIndicators) {
+                            if (pattern.test(contents)) {
+                                return true; // taken
+                            }
+                        }
+
+                        // If none of the taken indicators match, check not-found patterns
+                        for (const pattern of notFoundPatterns) {
+                            if (pattern.test(contents)) {
+                                return false; // available
+                            }
+                        }
+
+                        // Default: if we can't determine, treat as taken (conservative)
+                        return true;
+                    } catch (err) {
+                        if (err.name === 'AbortError') return null;
+                        await sleep(200);
                     }
-                    return true;
-                } catch (err) {
-                    if (err.name === 'AbortError') return null; // ignored
-                    return true; // on network error, assume taken
-                } finally {
-                    controllers.delete(controller);
                 }
+                return null; // all retries failed
             }
 
-            // Worker that continuously checks random usernames
             async function worker() {
                 while (isSearching && !found && attempts < MAX_ATTEMPTS) {
                     const username = randomUsername();
@@ -106,24 +151,22 @@
                     if (exists === false) {
                         found = true;
                         isSearching = false;
-                        // Abort all pending requests
                         for (const c of controllers) c.abort();
                         controllers.clear();
                         output.innerHTML = `<div class="available">✅ AVAILABLE: @${username}</div>`;
                         break;
                     }
                     if (exists !== null) checked++;
+                    await sleep(REQUEST_DELAY);
                 }
             }
 
-            // Update stats periodically
             function updateStats() {
                 const elapsed = (Date.now() - startTime) / 1000;
                 const speed = elapsed > 0 ? (checked / elapsed).toFixed(0) : 0;
                 statsDiv.textContent = `Attempts: ${attempts} | Checked: ${checked} | Speed: ${speed}/s`;
             }
 
-            // Main search function
             async function startSearch() {
                 if (isSearching) return;
                 isSearching = true;
@@ -135,19 +178,15 @@
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
 
-                // Start stats updater
                 speedInterval = setInterval(updateStats, 500);
 
-                // Launch workers
                 const workers = [];
                 for (let i = 0; i < CONCURRENCY; i++) {
                     workers.push(worker());
                 }
 
-                // Wait for all workers to finish
                 await Promise.all(workers);
 
-                // Cleanup
                 clearInterval(speedInterval);
                 updateStats();
                 isSearching = false;
@@ -159,11 +198,9 @@
                 }
             }
 
-            // Stop search
             function stopSearch() {
                 if (!isSearching) return;
                 isSearching = false;
-                // Abort all pending
                 for (const c of controllers) c.abort();
                 controllers.clear();
                 output.innerHTML += `<div class="error">Search cancelled by user.</div>`;
