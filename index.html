@@ -10,7 +10,6 @@
         .available { color: #44ff44; font-weight: bold; }
         .taken { color: #ff6666; }
         .error { color: #ffaa00; }
-        .info { color: #ffcc00; }
         button { background: #0f0; color: #111; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; margin-right: 10px; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
         #stats { margin-top: 10px; color: #aaa; }
@@ -18,7 +17,7 @@
 </head>
 <body>
     <h2>TikTok Username Availability Checker</h2>
-    <p>Uses instantusername.com API. Generates 4-letter usernames at 20/sec, checks each within 5 seconds.</p>
+    <p>Uses the API endpoint discovered from instantusername.com's client code: <code>https://api.instantusername.com/check/tiktok/{username}</code></p>
     <button id="startBtn">Start</button>
     <button id="stopBtn" disabled>Stop</button>
     <button id="clearBtn">Clear Log</button>
@@ -33,10 +32,11 @@
             const clearBtn = document.getElementById('clearBtn');
             const statsDiv = document.getElementById('stats');
 
-            // instantusername.com API base URL discovered from page preconnect
+            // API base URL discovered from instantusername.com's App.ClsjAyD-.js
+            // The client code calls: fetch(`https://api.instantusername.com${i}`, {credentials: 'include'})
+            // where i is a path like `/check/tiktok/{username}`.
             const API_BASE = 'https://api.instantusername.com';
-            // Endpoint pattern inferred from the project's mock server: /check/:platform/:username
-            const CHECK_ENDPOINT = (username) => `${API_BASE}/check/tiktok/${username}`;
+            const CHECK_ENDPOINT = (username) => `${API_BASE}/check/tiktok/${encodeURIComponent(username)}`;
 
             // Generation rate: 20 per second -> one every 50ms
             const GEN_INTERVAL_MS = 50;
@@ -93,6 +93,7 @@
                         const response = await fetch(url, {
                             method: 'GET',
                             signal: controller.signal,
+                            credentials: 'include', // required by the API
                             headers: { 'Accept': 'application/json' }
                         });
 
@@ -107,13 +108,13 @@
                         }
 
                         const data = await response.json();
-                        // Expected shape: { service, url, available, message }
                         clearTimeout(timeoutId);
                         activeControllers.delete(controller);
+                        // Expected shape: { service, url, available, message }
                         if (typeof data.available === 'boolean') {
                             return data.available; // true = available, false = taken
                         }
-                        return null; // unexpected response
+                        return null;
                     } catch (err) {
                         if (err.name === 'AbortError') {
                             clearTimeout(timeoutId);
