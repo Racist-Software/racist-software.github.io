@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TikTok Username Checker (instantusername API)</title>
+    <title>TikTok Username Checker (instantusername via CORS proxy)</title>
     <style>
         body { font-family: monospace; background: #111; color: #0f0; padding: 20px; }
         #log { margin-top: 20px; white-space: pre-wrap; max-height: 500px; overflow-y: auto; border: 1px solid #333; padding: 10px; font-size: 13px; }
@@ -17,7 +17,7 @@
 </head>
 <body>
     <h2>TikTok Username Availability Checker</h2>
-    <p>Uses the API endpoint discovered from instantusername.com's client code: <code>https://api.instantusername.com/check/tiktok/{username}</code></p>
+    <p>Uses instantusername.com API via a public CORS proxy. Generates 4-letter usernames at 20/sec.</p>
     <button id="startBtn">Start</button>
     <button id="stopBtn" disabled>Stop</button>
     <button id="clearBtn">Clear Log</button>
@@ -32,11 +32,10 @@
             const clearBtn = document.getElementById('clearBtn');
             const statsDiv = document.getElementById('stats');
 
-            // API base URL discovered from instantusername.com's App.ClsjAyD-.js
-            // The client code calls: fetch(`https://api.instantusername.com${i}`, {credentials: 'include'})
-            // where i is a path like `/check/tiktok/{username}`.
-            const API_BASE = 'https://api.instantusername.com';
-            const CHECK_ENDPOINT = (username) => `${API_BASE}/check/tiktok/${encodeURIComponent(username)}`;
+            // instantusername API endpoint (discovered from their client code)
+            const API_ENDPOINT = (username) => `https://api.instantusername.com/check/tiktok/${encodeURIComponent(username)}`;
+            // Public CORS proxy that returns raw response
+            const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 
             // Generation rate: 20 per second -> one every 50ms
             const GEN_INTERVAL_MS = 50;
@@ -83,17 +82,17 @@
             }
 
             async function checkUsername(username) {
-                const url = CHECK_ENDPOINT(username);
+                const apiUrl = API_ENDPOINT(username);
+                const proxyUrl = CORS_PROXY + encodeURIComponent(apiUrl);
                 const controller = new AbortController();
                 activeControllers.add(controller);
                 const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
                 for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
                     try {
-                        const response = await fetch(url, {
+                        const response = await fetch(proxyUrl, {
                             method: 'GET',
                             signal: controller.signal,
-                            credentials: 'include', // required by the API
                             headers: { 'Accept': 'application/json' }
                         });
 
@@ -107,7 +106,21 @@
                             return null;
                         }
 
-                        const data = await response.json();
+                        const text = await response.text();
+                        let data;
+                        try {
+                            data = JSON.parse(text);
+                        } catch (e) {
+                            // Proxy returned non-JSON (e.g., HTML error page)
+                            if (attempt < MAX_RETRIES - 1) {
+                                await sleep(300);
+                                continue;
+                            }
+                            clearTimeout(timeoutId);
+                            activeControllers.delete(controller);
+                            return null;
+                        }
+
                         clearTimeout(timeoutId);
                         activeControllers.delete(controller);
                         // Expected shape: { service, url, available, message }
